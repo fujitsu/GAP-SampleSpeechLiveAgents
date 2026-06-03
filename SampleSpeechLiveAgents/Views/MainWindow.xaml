@@ -1,0 +1,280 @@
+﻿<Window x:Class="SampleSpeechLiveAgents.Views.MainWindow"
+        x:Name="window"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:i="http://schemas.microsoft.com/xaml/behaviors"
+        xmlns:local="clr-namespace:SampleSpeechLiveAgents.Views"
+        xmlns:prop="clr-namespace:SampleSpeechLiveAgents.Properties"
+        xmlns:converter="clr-namespace:SampleSpeechLiveAgents.Converters"
+        Icon="/Images/GAP_ICON2.ico"
+        mc:Ignorable="d"
+        FontFamily="Meiryo UI"
+        Title="Azure Speech Service Sample for Fujitsu Cloud Service Generative AI Platform" Height="450" Width="800"
+        DataContext="{Binding ViewModel, RelativeSource={RelativeSource Mode=Self}}"
+        d:DataContext="{d:DesignInstance IsDesignTimeCreatable=False}">
+    <Window.Resources>
+        <converter:NegativeConverter x:Key="NegativeConverter"/>
+        <converter:Boolean2CollapsedConverter x:Key="Boolean2CollapsedConverter"/>
+        <converter:Boolean2VisibilityConverter x:Key="Boolean2VisibilityConverter"/>
+        <converter:Null2FalseConverter x:Key="Null2FalseConverter"/>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="8,0,8,0" Visibility="Collapsed">
+        </StackPanel>
+
+        <ListBox x:Name="listBoxMessage" Grid.Row="2" HorizontalContentAlignment="Stretch"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 ScrollViewer.VerticalScrollBarVisibility="Visible"
+                 VirtualizingPanel.IsVirtualizing="True"
+                 VirtualizingPanel.ScrollUnit="Pixel"
+                 ScrollViewer.IsDeferredScrollingEnabled="False"
+                 ScrollViewer.PanningMode="VerticalOnly"
+                 SelectionMode="Single" Margin="0,0,0,0" Padding="20,0,20,0"
+                 BorderThickness="0" Background="Transparent" Focusable="False"
+                 ItemsSource="{Binding Messages}" >
+            <ListBox.Style>
+                <Style TargetType="{x:Type ListBox}">
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="{x:Type ListBox}">
+                                <Border Name="Bd"
+                                        Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}">
+                                    <ScrollViewer Padding="{TemplateBinding Padding}"
+                                                  Focusable="false">
+                                        <ItemsPresenter SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
+                                    </ScrollViewer>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsEnabled" Value="false">
+                                        <Setter TargetName="Bd" Property="Background" Value="Transparent"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </ListBox.Style>
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="{x:Type ContentControl}">
+                                <ContentPresenter />
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                    <Setter Property="Margin" Value="0,0,0,0" />
+                    <Setter Property="Padding" Value="0"/>
+                    <Setter Property="BorderThickness" Value="0"/>
+                    <Setter Property="Focusable" Value="False" />
+                </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <local:MessagePanel />
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Grid Grid.Row="3" Margin="0,5,0,5" Visibility="{Binding IsLogin, Mode=OneWay, Converter={StaticResource Boolean2VisibilityConverter}}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Button Grid.Column="0" Margin="4,0,8,0" HorizontalAlignment="Left" ToolTip="{x:Static prop:Resources.EditChatRoomSettings}" Background="#FF707070">
+                <Grid>
+                    <Image Panel.ZIndex="1" Source="/Images/Settings.png"
+                           Stretch="UniformToFill"
+                           Width="24" Height="24" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Grid>
+                <i:Interaction.Triggers>
+                    <i:EventTrigger EventName="Click">
+                        <i:InvokeCommandAction Command="{Binding ShowDialogCommand}" CommandParameter="EditChatRoomSettings"/>
+                    </i:EventTrigger>
+                </i:Interaction.Triggers>
+                <Button.Style>
+                    <Style TargetType="Button">
+                        <Setter Property="IsEnabled" Value="False"/>
+                        <Style.Triggers>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding IsBusy, Mode=OneWay, Converter={StaticResource NegativeConverter}}" Value="True"/>
+                                    <Condition Binding="{Binding SelectedChatRoom.ID, Mode=OneWay, Converter={StaticResource Null2FalseConverter}}" Value="True"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="IsEnabled" Value="True"/>
+                            </MultiDataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
+            <TextBlock Grid.Column="2"  VerticalAlignment="Center" Opacity="0.6" Text="{Binding Messages.Count, StringFormat='{x:Static prop:Resources.MessagesCount}'}" />
+            <Button Grid.Column="3" Margin="4,0,4,0" ToolTip="{x:Static prop:Resources.DeleteMessage}" Background="#FF707070" IsEnabled="{Binding IsBusy, Converter={StaticResource NegativeConverter}}">
+                <Grid>
+                    <Image Panel.ZIndex="1" Source="/Images/Trash.png"
+                           Stretch="UniformToFill"
+                           Width="24" Height="24" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Grid>
+                <i:Interaction.Triggers>
+                    <i:EventTrigger EventName="Click">
+                        <i:InvokeCommandAction Command="{Binding DeleteMessageCommand}"/>
+                    </i:EventTrigger>
+                </i:Interaction.Triggers>
+                <Button.Style>
+                    <Style TargetType="Button">
+                        <Setter Property="Visibility" Value="Visible" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Messages.Count}" Value="0">
+                                <Setter Property="Visibility" Value="Hidden" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
+        </Grid>
+
+        <Grid VerticalAlignment="Bottom" Grid.Row="4" Background="#FF707070" IsEnabled="{Binding IsLogin, Mode=OneWay}">
+            <Grid Margin="25,9,25,9">
+                <!-- 入力欄と添付UIを縦に配置（Row: 0=入力欄、1=添付UI） -->
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- 上: テキスト入力（ウォーターマークと重ねる） -->
+                    <Grid Grid.Row="0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding InputText,Mode=OneWay, UpdateSourceTrigger=PropertyChanged}"
+                                   Foreground="White"
+                                   Padding="5,5,0,5" VerticalAlignment="Top" IsHitTestVisible="False" />
+                        <ToggleButton Grid.Column="1"
+                                      Panel.ZIndex="1" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                      Command="{Binding SpeechCommand}" CommandParameter="{Binding IsChecked, RelativeSource={RelativeSource Self}}">
+                            <ToggleButton.Style>
+                                <Style TargetType="ToggleButton">
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="BorderBrush" Value="Transparent"/>
+                                    <Setter Property="BorderThickness" Value="2"/>
+                                    <Setter Property="Padding" Value="2"/>
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="ToggleButton">
+                                                <Border x:Name="Bd"
+                                                        Background="{TemplateBinding Background}"
+                                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                                        CornerRadius="2">
+                                                    <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                                                      Content="{TemplateBinding Content}"/>
+                                                </Border>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsLogin}" Value="False">
+                                            <Setter Property="IsChecked" Value="False"/>
+                                        </DataTrigger>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter Property="Background" Value="DodgerBlue"/>
+                                            <Setter Property="BorderBrush" Value="DodgerBlue"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ToggleButton.Style>
+
+                            <Image Grid.Column="1"
+                                   Panel.ZIndex="1" Source="/Images/Speech.png"
+                                   Stretch="UniformToFill" 
+                                   Width="24" Height="24" />
+                        </ToggleButton>
+                    </Grid>
+                </Grid>
+            </Grid>
+        </Grid>
+
+        <DockPanel Grid.Row="0" IsEnabled="{Binding IsBusy, Converter={StaticResource NegativeConverter}}">
+            <Menu DockPanel.Dock="Top" Padding="0,4,0,4">
+                <Menu.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <DockPanel />
+                    </ItemsPanelTemplate>
+                </Menu.ItemsPanel>
+                <MenuItem Header="{x:Static prop:Resources.MenuFile}">
+                    <MenuItem Command="{Binding ShowDialogCommand}" CommandParameter="Save" Header="{x:Static prop:Resources.MenuSave}" />
+                    <Separator />
+                    <MenuItem Header="{x:Static prop:Resources.MenuRAG}" IsEnabled="{Binding IsLogin}">
+                        <MenuItem Command="{Binding ShowDialogCommand}" CommandParameter="CreateRetriever" Header="{x:Static prop:Resources.MenuCreateRetriever}" />
+                        <MenuItem Command="{Binding ShowDialogCommand}" CommandParameter="ManageRetrievers" Header="{x:Static prop:Resources.MenuManageRetrievers}" />
+                    </MenuItem>
+                    <Separator />
+                    <MenuItem Command="{Binding ShowDialogCommand}" CommandParameter="Connect" Header="{x:Static prop:Resources.MenuConnect}" Visibility="{Binding IsLogin, Converter={StaticResource Boolean2CollapsedConverter}}" IsEnabled="{Binding IsSettings}" />
+                    <MenuItem Command="{Binding ShowDialogCommand}" CommandParameter="Disconnect" Header="{x:Static prop:Resources.MenuDisconnect}" Visibility="{Binding IsLogin, Converter={StaticResource Boolean2VisibilityConverter}}" />
+                    <MenuItem Command="{Binding ShowDialogCommand}" CommandParameter="Settings" Header="{x:Static prop:Resources.MenuSettings}" />
+                    <Separator />
+                    <MenuItem Header="{x:Static prop:Resources.MenuExit}">
+                        <i:Interaction.Triggers>
+                            <i:EventTrigger EventName="Click">
+                                <i:CallMethodAction TargetObject="{Binding ElementName=window}" MethodName="Close" />
+                            </i:EventTrigger>
+                        </i:Interaction.Triggers>
+                    </MenuItem>
+                </MenuItem>
+                <MenuItem Header="{x:Static prop:Resources.MenuChatRoom}">
+                    <MenuItem Command="{Binding ShowDialogCommand}" CommandParameter="CreateChatRoom" Header="{x:Static prop:Resources.MenuCreateChatRoom}"/>
+                    <MenuItem Command="{Binding ShowDialogCommand}" CommandParameter="ManageChatRooms" Header="{x:Static prop:Resources.MenuManageChatRooms}" />
+                    <Separator />
+                    <MenuItem Command="{Binding ShowDialogCommand}" CommandParameter="ClearChatRoom" Header="{x:Static prop:Resources.MenuClearChatRoom}" />
+                    <MenuItem.Style>
+                        <Style TargetType="MenuItem">
+                            <Setter Property="IsEnabled" Value="False"/>
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding IsLogin, Mode=OneWay}" Value="True"/>
+                                        <Condition Binding="{Binding IsBusy, Mode=OneWay, Converter={StaticResource NegativeConverter}}" Value="True"/>
+                                        <Condition Binding="{Binding SelectedChatRoom.ID, Mode=OneWay, Converter={StaticResource Null2FalseConverter}}" Value="True"/>
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="IsEnabled" Value="True"/>
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </MenuItem.Style>
+                </MenuItem>
+                <ComboBox Foreground="Black" 
+                          ItemsSource="{Binding ChatRooms}" 
+                          SelectedItem="{Binding SelectedChatRoom}"
+                          SelectedValuePath="ID"
+                          Visibility="{Binding IsLogin, Converter={StaticResource Boolean2VisibilityConverter}}" IsEnabled="{Binding IsLogin}">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Name}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <MenuItem Header="{x:Static prop:Resources.MenuHelp}">
+                    <MenuItem Command="{Binding ShowDialogCommand}" CommandParameter="About" Header="{x:Static prop:Resources.MenuAbout}" />
+                </MenuItem>
+                <MenuItem Header="{Binding UserName}" DockPanel.Dock="Right" HorizontalAlignment="Right" IsHitTestVisible="False" Margin="0,0,20,0" />
+            </Menu>
+        </DockPanel>
+    </Grid>
+</Window>

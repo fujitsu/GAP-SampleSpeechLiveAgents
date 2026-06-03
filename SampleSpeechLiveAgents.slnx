@@ -1,0 +1,9 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="SampleSpeechLiveAgents/SampleSpeechLiveAgents.csproj" Id="265802b3-1197-4325-8006-0a78db5c000f">
+    <Platform Solution="*|x64" Project="x64" />
+  </Project>
+</Solution>
