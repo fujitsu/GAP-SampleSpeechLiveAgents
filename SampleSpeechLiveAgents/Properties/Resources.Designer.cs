@@ -106,6 +106,15 @@ namespace SampleSpeechLiveAgents.Properties {
         }
         
         /// <summary>
+        ///   自動送信 に類似しているローカライズされた文字列を検索します。
+        /// </summary>
+        public static string AutoSend {
+            get {
+                return ResourceManager.GetString("AutoSend", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Cancel に類似しているローカライズされた文字列を検索します。
         /// </summary>
         public static string Cancel {
@@ -273,6 +282,24 @@ namespace SampleSpeechLiveAgents.Properties {
         public static string InvalidFileType {
             get {
                 return ResourceManager.GetString("InvalidFileType", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   ログイン に類似しているローカライズされた文字列を検索します。
+        /// </summary>
+        public static string Login {
+            get {
+                return ResourceManager.GetString("Login", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   [ログイン]をクリックして、事前に設定した内容で認証を行ってください。 に類似しているローカライズされた文字列を検索します。
+        /// </summary>
+        public static string LoginRemarks {
+            get {
+                return ResourceManager.GetString("LoginRemarks", resourceCulture);
             }
         }
         
