@@ -35,6 +35,22 @@ namespace SampleSpeechLiveAgents.Models
             }
         }
 
+        private bool _IsCompleted = false;
+        public bool IsCompleted
+        {
+            get => _IsCompleted;
+            private set
+            {
+                if (value == _IsCompleted) return;
+                _IsCompleted = value;
+                // UI スレッドで通知
+                if (Context != null)
+                    Context.Post(_ => OnPropertyChanged(), null);
+                else
+                    OnPropertyChanged();
+            }
+        }
+
         /// <summary>
         /// 音声認識を開始する
         /// </summary>
@@ -61,6 +77,7 @@ namespace SampleSpeechLiveAgents.Models
             {
                 this.IsRunning = true;
                 RecognizedText = string.Empty;
+                this.IsCompleted = false;
                 await this.Recognizer.StartContinuousRecognitionAsync().ConfigureAwait(false);
             }
             catch
@@ -117,6 +134,7 @@ namespace SampleSpeechLiveAgents.Models
                 else
                     RecognizedText = text;
             }
+            this.IsCompleted = !partial; // 部分結果でない場合は完了とみなす
         }
 
         /// <summary>
@@ -159,6 +177,7 @@ namespace SampleSpeechLiveAgents.Models
             {
                 // エラーやキャンセルを扱う。必要に応じて再初期化や通知を行う
                 // 例: e.Reason, e.ErrorDetails に基づく処理
+                this.IsCompleted = false;
             };
         }
 
