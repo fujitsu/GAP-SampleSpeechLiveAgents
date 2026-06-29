@@ -5,8 +5,11 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.Remoting.Contexts;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.TextBox;
 
 namespace SampleSpeechLiveAgents.ViewModels
 {
@@ -14,6 +17,7 @@ namespace SampleSpeechLiveAgents.ViewModels
     {
         private Models.ChatModel Model = new Models.ChatModel();
         private Models.SpeechModel Speech = new Models.SpeechModel();
+        private SynchronizationContext Context { get; } = SynchronizationContext.Current;
 
         /// <summary>
         /// IDトークン
@@ -35,7 +39,11 @@ namespace SampleSpeechLiveAgents.ViewModels
         public bool IsSettings
         {
             get { return this.Model.IsSettings; }
-            set { OnPropertyChanged(); }
+            set
+            {
+                OnMessaged("Disconnect");
+                OnPropertyChanged();
+            }
         }
 
         /// <summary>
@@ -84,6 +92,7 @@ namespace SampleSpeechLiveAgents.ViewModels
             get { return _IsBusy; }
             set
             {
+                // UI スレッドで通知
                 _IsBusy = value;
                 OnPropertyChanged();
                 if (value)
@@ -132,6 +141,23 @@ namespace SampleSpeechLiveAgents.ViewModels
         }
 
         /// <summary>
+        /// 音声認識確定後自動送信フラグ
+        /// </summary>
+        private bool _IsAutoSend = false;
+        public bool IsAutoSend
+        {
+            get { return _IsAutoSend; }
+            set
+            {
+                if (_IsAutoSend != value)
+                {
+                    _IsAutoSend = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        /// <summary>
         /// コンストラクター
         /// </summary>
         public MainViewModel()
@@ -156,8 +182,7 @@ namespace SampleSpeechLiveAgents.ViewModels
                     }
                     this.IsBusy = false;
                 }
-
-                if (e.PropertyName == "IsLogin" && this.IsLogin == false)
+                else if (e.PropertyName == "IsLogin" && this.IsLogin == false)
                 {
                     this.Messages.Clear();
                     this.ChatRooms.Clear();
@@ -179,17 +204,36 @@ namespace SampleSpeechLiveAgents.ViewModels
                 if (e.PropertyName == "IsStreaming" && this.Model.IsStreaming == false)
                 {
                     this.EndPreviewKeyDownCommand();
-    }
-};
+                }
+            };
 
-this.Speech.PropertyChanged += (s, e) =>
-{
-    // 音声認識の結果を受け取る
-    if (e.PropertyName == "RecognizedText")
-    {
-        this.InputText = this.Speech.RecognizedText;
-    }
-};
+            this.Speech.PropertyChanged += async (s, e) =>
+            {
+                // 音声認識の結果を受け取る
+                if (e.PropertyName == "RecognizedText")
+                {
+                    this.InputText = this.Speech.RecognizedText;
+                }
+                else if (e.PropertyName == "IsCompleted")
+                {
+                    if (this.IsAutoSend && this.Speech.IsCompleted)
+                    {
+                        try
+                        {
+                            // メッセージを追加（ここではローカルに追加するのみ）
+                            var content = this.Speech.RecognizedText.Trim();
+
+                            // 自動送信モードの場合はすぐに送信せず、Model側のキューに入れる
+                            this.Model.EnqueueMessage(content);
+                        }
+                        catch (Exception ex)
+                        {
+                            // Command内で例外が発生した場合はここでキャッチしてメッセージ表示
+                            OnMessaged(ex.Message);
+                        }
+                    }
+                }
+            };
         }
 
         /// <summary>
@@ -197,271 +241,260 @@ this.Speech.PropertyChanged += (s, e) =>
         /// </summary>
         /// <returns></returns>
         internal async Task ConnectAsync()
-{
-    // 接続情報設定済の時は、ログイン処理を実行
-    if (this.Model.IsSettings)
-    {
-        await this.Model.ConnectAsync();
-    }
-    else
-    {
-        OnMessaged("Settings");
-    }
-}
-
-/// <summary>
-/// 切断処理を非同期で実行
-/// </summary>
-/// <returns></returns>
-internal async Task DisconnectAsync()
-{
-    // 接続情報設定済の時は、ログアウト処理を実行
-    if (this.Model.IsSettings)
-    {
-        await this.Model.DisconnectAsync();
-    }
-}
-
-/// <summary>
-/// ルーム一覧取得
-/// </summary>
-/// <returns></returns>
-internal async Task GetChatRoomsAsync(bool isUseNone = false)
-{
-    await this.Model.GetChatRoomsAsync(isUseNone);
-}
-
-/// <summary>
-/// チャットルーム作成処理
-/// </summary>
-/// <returns></returns>
-internal async Task<string> CreateChatRoomAsync(string name, string retrieverID)
-{
-    return await this.Model.CreateChatRoomAsync(name, retrieverID);
-}
-
-
-/// <summary>
-/// チャットルーム内会話クリア処理
-/// </summary>
-/// <returns></returns>
-internal async Task ClearChatRoomAsync()
-{
-    if (this.SelectedChatRoom != null)
-    {
-        await this.Model.ClearChatRoomAsync(this.SelectedChatRoom.ID);
-        await this.Model.GetChatsAsync(this.SelectedChatRoom.ID);
-    }
-}
-
-/// <summary>
-/// メッセージの内容をMarkdown形式で保存する
-/// </summary>
-/// <param name="path"></param>
-/// <returns></returns>
-/// <exception cref="NotImplementedException"></exception>
-internal async Task SaveMessagesAsMarkdownAsync(string path)
-{
-    this.IsBusy = true;
-    try
-    {
-        await this.Model.SaveMessagesAsMarkdownAsync(path);
-    }
-    catch (Exception ex)
-    {
-        // ViewModel 内で発生したエラーは UI に通知するため OnMessaged で投げる
-        OnMessaged(ex.Message);
-    }
-    finally
-    {
-        this.IsBusy = false;
-    }
-}
-
-/// <summary>
-/// サブ画面表示
-/// </summary>
-RelayCommand<string> _ShowDialogCommand;
-public RelayCommand<string> ShowDialogCommand
-{
-    get
-    {
-        if (_ShowDialogCommand == null)
         {
-            _ShowDialogCommand = new RelayCommand<string>((target) =>
+            // 接続情報設定済の時は、ログイン処理を実行
+            if (this.Model.IsSettings)
             {
-                this.IsBusy = true;
-                try
-                {
-                    OnMessaged(target);
-                }
-                catch (Exception ex)
-                {
-                    // Command内で例外が発生した場合はここでキャッチしてメッセージ表示
-                    OnMessaged(ex.Message);
-                }
-                this.IsBusy = false;
-            });
+                await this.Model.ConnectAsync();
+            }
+            else
+            {
+                OnMessaged("Settings");
+            }
         }
-        return _ShowDialogCommand;
-    }
-    set
-    {
-        _ShowDialogCommand = value;
-    }
-}
 
-/// <summary>
-/// 最新の入力メッセージまでを削除するコマンド（XAMLからバインド）
-/// </summary>
-private RelayCommand _DeleteMessageCommand;
-public RelayCommand DeleteMessageCommand
-{
-    get
-    {
-        if (_DeleteMessageCommand == null)
+        /// <summary>
+        /// 切断処理を非同期で実行
+        /// </summary>
+        /// <returns></returns>
+        internal async Task DisconnectAsync()
         {
-            _DeleteMessageCommand = new RelayCommand(async () =>
+            // 接続情報設定済の時は、ログアウト処理を実行
+            if (this.Model.IsSettings)
             {
-                this.IsBusy = true;
-                try
-                {
-                    this.InputText = await this.Model.DeleteMessageAsync();
-                }
-                catch (Exception ex)
-                {
-                    // Command内で例外が発生した場合はここでキャッチしてメッセージ表示
-                    OnMessaged(ex.Message);
-                }
-                this.IsBusy = false;
-            });
+                await this.Model.DisconnectAsync();
+            }
         }
-        return _DeleteMessageCommand;
-    }
-    set
-    {
-        _DeleteMessageCommand = value;
-    }
-}
 
-/// <summary>
-/// PreviewKeyDown を受け取るコマンド（XAMLからバインド） 
-/// </summary>
-private RelayCommand<bool> _SpeechCommand;
-public RelayCommand<bool> SpeechCommand
-{
-    get
-    {
-        if (_SpeechCommand == null)
+        /// <summary>
+        /// ルーム一覧取得
+        /// </summary>
+        /// <returns></returns>
+        internal async Task GetChatRoomsAsync(bool isUseNone = false)
         {
-            _SpeechCommand = new RelayCommand<bool>(async (target) =>
+            await this.Model.GetChatRoomsAsync(isUseNone);
+        }
+
+        /// <summary>
+        /// チャットルーム作成処理
+        /// </summary>
+        /// <returns></returns>
+        internal async Task<string> CreateChatRoomAsync(string name, string retrieverID)
+        {
+            return await this.Model.CreateChatRoomAsync(name, retrieverID);
+        }
+
+
+        /// <summary>
+        /// チャットルーム内会話クリア処理
+        /// </summary>
+        /// <returns></returns>
+        internal async Task ClearChatRoomAsync()
+        {
+            if (this.SelectedChatRoom != null)
             {
-                // 処理中でなければ送信処理を実行
-                if (!this.IsBusy)
+                await this.Model.ClearChatRoomAsync(this.SelectedChatRoom.ID);
+                await this.Model.GetChatsAsync(this.SelectedChatRoom.ID);
+            }
+        }
+
+        /// <summary>
+        /// メッセージの内容をMarkdown形式で保存する
+        /// </summary>
+        /// <param name="path"></param>
+        /// <returns></returns>
+        /// <exception cref="NotImplementedException"></exception>
+        internal async Task SaveMessagesAsMarkdownAsync(string path)
+        {
+            this.IsBusy = true;
+            try
+            {
+                await this.Model.SaveMessagesAsMarkdownAsync(path);
+            }
+            catch (Exception ex)
+            {
+                // ViewModel 内で発生したエラーは UI に通知するため OnMessaged で投げる
+                OnMessaged(ex.Message);
+            }
+            finally
+            {
+                this.IsBusy = false;
+            }
+        }
+
+        /// <summary>
+        /// サブ画面表示
+        /// </summary>
+        RelayCommand<string> _ShowDialogCommand;
+        public RelayCommand<string> ShowDialogCommand
+        {
+            get
+            {
+                if (_ShowDialogCommand == null)
                 {
-                    this.IsBusy = true;
-                    try
+                    _ShowDialogCommand = new RelayCommand<string>((target) =>
                     {
-                        if (target)
+                        this.IsBusy = true;
+                        try
                         {
-                            await this.Speech.StartAsync();
+                            OnMessaged(target);
                         }
-                        else
+                        catch (Exception ex)
                         {
-                            await this.Speech.StopAsync(this.IsLogin);
-
-                            // メッセージを追加（ここではローカルに追加するのみ）
-                            var content = this.InputText.Trim();
-
-                            if (!string.IsNullOrEmpty(this.SelectedChatRoom?.ID))
-                            {
-                                await this.Model.SendMessageStreamingAsync(this.SelectedChatRoom.ID, content);
-                            }
-                            else
-                            {
-                                await this.Model.SendMessageAsync(this.Messages.ToList(), (float)0.5, 1024, content);
-                            }
+                            // Command内で例外が発生した場合はここでキャッチしてメッセージ表示
+                            OnMessaged(ex.Message);
                         }
-                    }
-                    catch (Exception ex)
-                    {
                         this.IsBusy = false;
-                        // Command内で例外が発生した場合はここでキャッチしてメッセージ表示
-                        OnMessaged(ex.Message);
-                    }
-                    if (this.Model.IsStreaming == false)
-                    {
-                        this.EndPreviewKeyDownCommand();
-                    }
+                    });
                 }
-            });
-        }
-        return _SpeechCommand;
-    }
-    set
-    {
-        _SpeechCommand = value;
-    }
-}
-private void EndPreviewKeyDownCommand()
-{
-    this.InputText = string.Empty;
-    this.IsBusy = false;
-    OnMessaged("PreviewKeyDownCommand");
-}
-
-/// <summary>
-/// 参照ドキュメント表示コマンド
-/// </summary>
-RelayCommand<List<string>> _DisplayReferenceCommand;
-public RelayCommand<List<string>> DisplayReferenceCommand
-{
-    get
-    {
-        if (_DisplayReferenceCommand == null)
-        {
-            _DisplayReferenceCommand = new RelayCommand<List<string>>(async (refs) =>
+                return _ShowDialogCommand;
+            }
+            set
             {
-                this.IsBusy = true;
-                try
-                {
-                    this.Refs = refs;
-                    OnMessaged("DisplayReference");
-                }
-                catch (Exception ex)
-                {
-                    // Command内で例外が発生した場合はここでキャッチしてメッセージ表示
-                    OnMessaged(ex.Message);
-                }
-                this.IsBusy = false;
-            });
+                _ShowDialogCommand = value;
+            }
         }
-        return _DisplayReferenceCommand;
-    }
-    set
-    {
-        _DisplayReferenceCommand = value;
-    }
-}
 
-/// <summary>
-/// ダイアログ表示用イベント
-/// </summary>
-public event MessagedEventHandler Messaged;
-internal virtual void OnMessaged(String message = "")
-{
-    this.Messaged?.Invoke(this, new MessageEventArgs(message));
-}
+        /// <summary>
+        /// 最新の入力メッセージまでを削除するコマンド（XAMLからバインド）
+        /// </summary>
+        private RelayCommand _DeleteMessageCommand;
+        public RelayCommand DeleteMessageCommand
+        {
+            get
+            {
+                if (_DeleteMessageCommand == null)
+                {
+                    _DeleteMessageCommand = new RelayCommand(async () =>
+                    {
+                        this.IsBusy = true;
+                        try
+                        {
+                            this.InputText = await this.Model.DeleteMessageAsync();
+                        }
+                        catch (Exception ex)
+                        {
+                            // Command内で例外が発生した場合はここでキャッチしてメッセージ表示
+                            OnMessaged(ex.Message);
+                        }
+                        this.IsBusy = false;
+                    });
+                }
+                return _DeleteMessageCommand;
+            }
+            set
+            {
+                _DeleteMessageCommand = value;
+            }
+        }
 
-// プロパティが変更されたときに通知するイベント
-public event PropertyChangedEventHandler PropertyChanged;
+        /// <summary>
+        /// PreviewKeyDown を受け取るコマンド（XAMLからバインド） 
+        /// </summary>
+        private RelayCommand<bool> _SpeechCommand;
+        public RelayCommand<bool> SpeechCommand
+        {
+            get
+            {
+                if (_SpeechCommand == null)
+                {
+                    _SpeechCommand = new RelayCommand<bool>(async (target) =>
+                    {
+                        // 処理中でなければ送信処理を実行
+                        if (!this.IsBusy)
+                        {
+                            this.IsBusy = true;
+                            try
+                            {
+                                if (target)
+                                {
+                                    await this.Speech.StartAsync();
+                                }
+                                else
+                                {
+                                    await this.Speech.StopAsync(this.IsLogin);
 
-// プロパティ変更通知を発行するメソッド
-protected virtual void OnPropertyChanged([CallerMemberName] String propertyName = "")
-{
-    var handler = this.PropertyChanged;
-    if (handler != null)
-        handler(this, new PropertyChangedEventArgs(propertyName));
-}
+                                    // メッセージを追加（ここではローカルに追加するのみ）
+                                    var content = this.InputText.Trim();
+                                    this.Model.EnqueueMessage(content);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                this.IsBusy = false;
+                                // Command内で例外が発生した場合はここでキャッチしてメッセージ表示
+                                OnMessaged(ex.Message);
+                            }
+                            this.IsBusy = false;
+                        }
+                    });
+                }
+                return _SpeechCommand;
+            }
+            set
+            {
+                _SpeechCommand = value;
+            }
+        }
+        private void EndPreviewKeyDownCommand()
+        {
+            this.InputText = string.Empty;
+            this.IsBusy = false;
+            OnMessaged("PreviewKeyDownCommand");
+        }
+
+        /// <summary>
+        /// 参照ドキュメント表示コマンド
+        /// </summary>
+        RelayCommand<List<string>> _DisplayReferenceCommand;
+        public RelayCommand<List<string>> DisplayReferenceCommand
+        {
+            get
+            {
+                if (_DisplayReferenceCommand == null)
+                {
+                    _DisplayReferenceCommand = new RelayCommand<List<string>>(async (refs) =>
+                    {
+                        this.IsBusy = true;
+                        try
+                        {
+                            this.Refs = refs;
+                            OnMessaged("DisplayReference");
+                        }
+                        catch (Exception ex)
+                        {
+                            // Command内で例外が発生した場合はここでキャッチしてメッセージ表示
+                            OnMessaged(ex.Message);
+                        }
+                        this.IsBusy = false;
+                    });
+                }
+                return _DisplayReferenceCommand;
+            }
+            set
+            {
+                _DisplayReferenceCommand = value;
+            }
+        }
+
+        /// <summary>
+        /// ダイアログ表示用イベント
+        /// </summary>
+        public event MessagedEventHandler Messaged;
+        internal virtual void OnMessaged(String message = "")
+        {
+            this.Messaged?.Invoke(this, new MessageEventArgs(message));
+        }
+
+        // プロパティが変更されたときに通知するイベント
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        // プロパティ変更通知を発行するメソッド
+        protected virtual void OnPropertyChanged([CallerMemberName] String propertyName = "")
+        {
+            var handler = this.PropertyChanged;
+            if (handler != null)
+                handler(this, new PropertyChangedEventArgs(propertyName));
+        }
     }
 }

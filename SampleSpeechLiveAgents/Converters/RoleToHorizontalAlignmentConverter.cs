@@ -5,7 +5,7 @@ using System.Windows.Data;
 
 namespace SampleSpeechLiveAgents.Converters
 {
-    internal class RoleToHorizontalAlignmentConverter : IValueConverter
+    public class RoleToHorizontalAlignmentConverter : IValueConverter
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
@@ -16,7 +16,7 @@ namespace SampleSpeechLiveAgents.Converters
             }
             else
             {
-                return Visibility.Collapsed;
+                return HorizontalAlignment.Left;
             }
         }
 

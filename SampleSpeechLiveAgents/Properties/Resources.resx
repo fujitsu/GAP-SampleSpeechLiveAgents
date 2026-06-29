@@ -132,6 +132,9 @@
   <data name="AuthenticationTypePrompt" xml:space="preserve">
     <value>対話認証</value>
   </data>
+  <data name="AutoSend" xml:space="preserve">
+    <value>自動送信</value>
+  </data>
   <data name="Cancel" xml:space="preserve">
     <value>Cancel</value>
   </data>
@@ -188,6 +191,12 @@
   </data>
   <data name="InvalidFileType" xml:space="preserve">
     <value>選択されたファイルはサポートされていない形式です。</value>
+  </data>
+  <data name="Login" xml:space="preserve">
+    <value>ログイン</value>
+  </data>
+  <data name="LoginRemarks" xml:space="preserve">
+    <value>[ログイン]をクリックして、事前に設定した内容で認証を行ってください。</value>
   </data>
   <data name="ManageChatRooms" xml:space="preserve">
     <value>ルーム管理</value>

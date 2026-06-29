@@ -1,17 +1,20 @@
 ﻿using SampleSpeechLiveAgents.Commons;
 using SampleSpeechLiveAgents.Properties;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Data;
 using System.IO;
 using System.Linq;
+using System.Net.WebSockets;
 using System.Runtime.CompilerServices;
 using System.Security.Policy;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 using System.Windows.Threading;
 
 namespace SampleSpeechLiveAgents.Models
@@ -20,6 +23,10 @@ namespace SampleSpeechLiveAgents.Models
     {
         private SynchronizationContext Context { get; set; } = SynchronizationContext.Current;
         public string IdToken { get; private set; } = string.Empty;
+
+        // キュー関連
+        private BlockingCollection<string> MessageQueue;
+        private CancellationTokenSource QueueCancellation;
 
         #region "認証関連"
         private TimeSpan ExpireInterval;
@@ -173,6 +180,17 @@ namespace SampleSpeechLiveAgents.Models
                     this.ExpireTimer.Start();
                 }
             };
+
+            // キュー初期化と自動デキューループ開始
+            this.MessageQueue = new BlockingCollection<string>(new ConcurrentQueue<string>());
+            this.QueueCancellation = new CancellationTokenSource();
+            Task.Factory.StartNew(async () =>
+            {
+                await this.SendingLoop();
+                this.QueueCancellation.Cancel(true);
+            }, this.QueueCancellation.Token).ContinueWith((t) =>
+            {
+            });
         }
 
         #region "チャット関連"
@@ -515,7 +533,7 @@ namespace SampleSpeechLiveAgents.Models
         /// </summary>
         /// <param name="id">ルームID</param>
         /// <param name="inputText">入力</param>
-        internal async Task SendMessageStreamingAsync(string id, string inputText)
+        internal async Task SendRoomMessageStreamingAsync(string id, string inputText)
         {
             var content = inputText ?? string.Empty;
             if (!string.IsNullOrWhiteSpace(content))
@@ -526,43 +544,56 @@ namespace SampleSpeechLiveAgents.Models
                     content = content,
                 };
 
+                // 質問のメッセージ追加
+                this.SetMessage("user", content, DateTime.UtcNow.ToLocalTime(), new List<string>());
+
                 // ここで body を JSON 文字列にシリアライズして変数に格納する
                 using (var ms = new MemoryStream())
                 {
                     var serializer = new System.Runtime.Serialization.Json.DataContractJsonSerializer(typeof(APIData.TChatMessage));
                     {
                         serializer.WriteObject(ms, body);
-                        var bodyJsonString = Encoding.UTF8.GetString(ms.ToArray());
-                        var jsonString = await HttpHelper.PostRequestAsync($"/api/v1/chats/{id}/messages", this.IdToken, bodyJsonString);
-                        using (var json = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(jsonString)))
+
+                        // Streaming回答表示完了待ち
+                        while (this.IsStreaming)
                         {
-                            var ser = new System.Runtime.Serialization.Json.DataContractJsonSerializer(typeof(APIData.TChatMessage));
-                            {
-                                // 質問のメッセージ追加
-                                var item = ser.ReadObject(json) as APIData.TChatMessage;
-                                if (item?.role != null)
-                                {
-                                    this.SetMessage(item.role,
-                                        item.content,
-                                        DateTimeOffset.FromUnixTimeMilliseconds(item.timeunix).ToLocalTime().DateTime,
-                                        item.ref_chunks is null ? new List<string>() : item.ref_chunks?.Select((x) => x.text.Replace("\n\n", "\n")).ToList());
-                                }
-                                else
-                                {
-                                    throw new Exception(jsonString);
-                                }
-                            }
-                            json.Close();
-
-                            // 最新行表示
-                            OnPropertyChanged("Messages_Item");
+                            await Task.Delay(100);
                         }
+                        this.IsStreaming = true;
 
-                        // AIからの回答取得
-                        var msgId = this.SetMessage("ai", Resources.Streaming, DateTime.UtcNow.ToLocalTime(), new List<string>());
-                        OnPropertyChanged("Messages_Item");
                         try
                         {
+                            var bodyJsonString = Encoding.UTF8.GetString(ms.ToArray());
+                            var jsonString = await HttpHelper.PostRequestAsync($"/api/v1/chats/{id}/messages", this.IdToken, bodyJsonString);
+                            using (var json = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(jsonString)))
+                            {
+                                var ser = new System.Runtime.Serialization.Json.DataContractJsonSerializer(typeof(APIData.TChatMessage));
+                                {
+                                    // 回答のメッセージ追加
+                                    var item = ser.ReadObject(json) as APIData.TChatMessage;
+                                    if (item?.role != null)
+                                    {
+                                        // 質問は送信できたので回答のStreamingを待ち合わせる
+                                    }
+                                    else
+                                    {
+                                        // ここでLLM-GRでのBlockメッセージが返却される
+                                        this.SetMessage("ai", jsonString, DateTime.UtcNow.ToLocalTime(), new List<string>());
+
+                                        // 待ち合わせ処理をSKIPする
+                                        throw new Exception(jsonString);
+                                    }
+                                }
+                                json.Close();
+
+                                // 最新行表示
+                                OnPropertyChanged("Messages_Item");
+                            }
+
+                            // AIからの回答取得
+                            var msgId = this.SetMessage("ai", Resources.Streaming, DateTime.UtcNow.ToLocalTime(), new List<string>());
+                            OnPropertyChanged("Messages_Item");
+
                             // Stream受信イベントハンドラー登録
                             HttpHelper.StreamEventReceived += async (s, e) =>
                             {
@@ -626,11 +657,11 @@ namespace SampleSpeechLiveAgents.Models
                                     }
                                     OnPropertyChanged("Messages_Item");
                                 }
-                                catch
+                                catch (Exception ex)
                                 {
                                     this.IsStreaming = false;
-                                    // エラー発生時はAI回答欄を削除する。
-                                    this.Messages.Remove(this.Messages.Where((x) => x.Id == msgId).FirstOrDefault());
+                                    // エラー発生時はAI回答欄にエラーを表示する（チャットルームの履歴が保持されるので、エラーは一時的なものとして扱う）。
+                                    this.SetMessage(msgId, "ai", ex.Message, DateTime.UtcNow.ToLocalTime(), new List<string>());
 
                                     // エラー伝搬は省略（必要であればイベントを定義して伝搬すること）
                                     //throw ex;
@@ -644,9 +675,9 @@ namespace SampleSpeechLiveAgents.Models
                         catch (Exception ex)
                         {
                             this.IsStreaming = false;
-                            // エラー発生時はAI回答欄を削除し、exceptionを投げる
-                            this.Messages.Remove(this.Messages.Where((x) => x.Id == msgId).FirstOrDefault());
-                            throw ex;
+
+                            // エラー伝搬は省略（必要であればイベントを定義して伝搬すること）
+                            //throw ex;
                         }
                     }
                 }
@@ -703,6 +734,7 @@ namespace SampleSpeechLiveAgents.Models
                 {
                     var msgId = this.SetMessage("ai", Resources.Streaming, DateTime.UtcNow.ToLocalTime(), new List<string>());
                     OnPropertyChanged("Messages_Item");
+
                     var serializer = new System.Runtime.Serialization.Json.DataContractJsonSerializer(typeof(APIData.TNonRoomRequest));
                     {
                         serializer.WriteObject(ms, body);
@@ -733,9 +765,8 @@ namespace SampleSpeechLiveAgents.Models
                         }
                         catch (Exception ex)
                         {
-                            // エラー発生時はAI回答欄を削除し、exceptionを投げる
+                            // エラー発生時はAI回答欄を削除する
                             this.Messages.Remove(this.Messages.Where((x) => x.Id == msgId).FirstOrDefault());
-                            throw ex;
                         }
                     }
                 }
@@ -884,6 +915,7 @@ namespace SampleSpeechLiveAgents.Models
                 {
                     var msgId = this.SetMessage("ai", Resources.Streaming, DateTime.UtcNow.ToLocalTime(), new List<string>());
                     OnPropertyChanged("Messages_Item");
+
                     var serializer = new System.Runtime.Serialization.Json.DataContractJsonSerializer(typeof(APIData.TCohereV2ChatRequest));
                     {
                         serializer.WriteObject(ms, body);
@@ -1002,6 +1034,84 @@ namespace SampleSpeechLiveAgents.Models
             }
         }
         #endregion
+
+        /// <summary>
+        /// 入力をキューイングする
+        /// </summary>
+        /// <param name="content"></param>
+        /// <exception cref="NotImplementedException"></exception>
+        internal void EnqueueMessage(string content)
+        {
+            if (!string.IsNullOrWhiteSpace(content))
+            {
+                try
+                {
+                    if (this.MessageQueue != null && !this.MessageQueue.IsAddingCompleted)
+                    {
+                        this.MessageQueue.Add(content);
+                    }
+                }
+                catch
+                {
+                    // 追加失敗時は無視（必要であればログ追加）
+                }
+            }
+        }
+
+        private async Task SendingLoop()
+        {
+#if DEBUG
+            System.Diagnostics.Debug.WriteLine("<<<<<<<<<<SendingLoop      >>>>>>>>>>");
+#endif
+            while (!this.QueueCancellation.IsCancellationRequested)
+            {
+                try
+                {
+                    if (this.MessageQueue.TryTake(out string content, Timeout.Infinite, this.QueueCancellation.Token))
+                    {
+                        // ログ（デバッグ）
+                        Console.WriteLine($"TAKE QUEUE:{content}\n---");
+
+                        Context.Post(async _ =>
+                        {
+                            if (!string.IsNullOrEmpty(content))
+                            {
+                                if (!string.IsNullOrEmpty(this.SelectedChatRoom?.ID))
+                                {
+                                    await this.SendRoomMessageStreamingAsync(this.SelectedChatRoom.ID, content);
+
+                                    // Streaming回答表示完了待ち
+                                    while (this.IsStreaming)
+                                    {
+                                        await Task.Delay(100);
+                                    }
+                                }
+                                else
+                                {
+                                    await this.SendMessageAsync(this.Messages.ToList(), (float)0.5, 1024, content);
+                                    OnPropertyChanged("IsStreaming");
+                                }
+                            }
+                        }, null);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (ObjectDisposedException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    // ループ継続のため例外は吸収（必要に応じてログ出力を追加）
+                }
+            }
+#if DEBUG
+            System.Diagnostics.Debug.WriteLine("##########SendingLoop Break##########");
+#endif
+        }
 
         // プロパティが変更されたときに通知するイベント
         public event PropertyChangedEventHandler PropertyChanged;
